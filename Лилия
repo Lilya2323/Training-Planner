@@ -1,0 +1,189 @@
+import json
+import os
+from datetime import datetime
+import tkinter as tk
+from tkinter import ttk, messagebox
+
+DATA_FILE = "training_data.json"
+
+class TrainingPlanner:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Training Planner")
+        self.root.geometry("800x500")
+        self.root.resizable(True, True)
+
+        self.trainings = []
+        self.filtered_trainings = []
+
+        self.load_data()
+
+        self.create_input_frame()
+        self.create_filter_frame()
+        self.create_table()
+        self.update_table()
+
+    def create_input_frame(self):
+        frame = ttk.LabelFrame(self.root, text="Добавить тренировку", padding=10)
+        frame.pack(fill="x", padx=10, pady=5)
+
+        ttk.Label(frame, text="Дата (ГГГГ-ММ-ДД):").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        self.date_entry = ttk.Entry(frame, width=15)
+        self.date_entry.grid(row=0, column=1, padx=5, pady=5)
+        self.date_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
+
+        ttk.Label(frame, text="Тип тренировки:").grid(row=0, column=2, sticky="w", padx=5, pady=5)
+        self.type_entry = ttk.Combobox(frame, values=["Бег", "Велосипед", "Плавание", "Силовая", "Йога"], width=15)
+        self.type_entry.grid(row=0, column=3, padx=5, pady=5)
+        self.type_entry.set("Бег")
+
+        ttk.Label(frame, text="Длительность (мин):").grid(row=0, column=4, sticky="w", padx=5, pady=5)
+        self.duration_entry = ttk.Entry(frame, width=10)
+        self.duration_entry.grid(row=0, column=5, padx=5, pady=5)
+
+        self.add_btn = ttk.Button(frame, text="Добавить тренировку", command=self.add_training)
+        self.add_btn.grid(row=0, column=6, padx=10, pady=5)
+
+    def create_filter_frame(self):
+        frame = ttk.LabelFrame(self.root, text="Фильтры", padding=10)
+        frame.pack(fill="x", padx=10, pady=5)
+
+        ttk.Label(frame, text="Тип тренировки:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
+        self.filter_type = ttk.Combobox(frame, values=["Все", "Бег", "Велосипед", "Плавание", "Силовая", "Йога"], width=15)
+        self.filter_type.grid(row=0, column=1, padx=5, pady=5)
+        self.filter_type.set("Все")
+        self.filter_type.bind("<<ComboboxSelected>>", lambda e: self.apply_filters())
+
+        ttk.Label(frame, text="Дата (ГГГГ-ММ-ДД):").grid(row=0, column=2, sticky="w", padx=5, pady=5)
+        self.filter_date = ttk.Entry(frame, width=15)
+        self.filter_date.grid(row=0, column=3, padx=5, pady=5)
+        self.filter_date.bind("<KeyRelease>", lambda e: self.apply_filters())
+
+        self.reset_btn = ttk.Button(frame, text="Сбросить фильтры", command=self.reset_filters)
+        self.reset_btn.grid(row=0, column=4, padx=10, pady=5)
+
+    def create_table(self):
+        frame = ttk.Frame(self.root)
+        frame.pack(fill="both", expand=True, padx=10, pady=5)
+
+        scrollbar = ttk.Scrollbar(frame)
+        scrollbar.pack(side="right", fill="y")
+
+        self.tree = ttk.Treeview(frame, columns=("date", "type", "duration"), show="headings", yscrollcommand=scrollbar.set)
+        self.tree.heading("date", text="Дата")
+        self.tree.heading("type", text="Тип тренировки")
+        self.tree.heading("duration", text="Длительность (мин)")
+        self.tree.column("date", width=120)
+        self.tree.column("type", width=150)
+        self.tree.column("duration", width=120)
+        self.tree.pack(side="left", fill="both", expand=True)
+
+        scrollbar.config(command=self.tree.yview)
+
+        self.delete_btn = ttk.Button(self.root, text="Удалить выбранную", command=self.delete_selected)
+        self.delete_btn.pack(pady=5)
+
+    def add_training(self):
+        date = self.date_entry.get().strip()
+        training_type = self.type_entry.get().strip()
+        duration = self.duration_entry.get().strip()
+
+        try:
+            datetime.strptime(date, "%Y-%m-%d")
+        except ValueError:
+            messagebox.showerror("Ошибка", "Дата должна быть в формате ГГГГ-ММ-ДД")
+            return
+
+        if not training_type:
+            messagebox.showerror("Ошибка", "Введите тип тренировки")
+            return
+
+        try:
+            duration_val = float(duration)
+            if duration_val <= 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("Ошибка", "Длительность должна быть положительным числом")
+            return
+
+        new_training = {
+            "date": date,
+            "type": training_type,
+            "duration": duration_val
+        }
+        self.trainings.append(new_training)
+        self.save_data()
+        self.apply_filters()
+        self.clear_inputs()
+        messagebox.showinfo("Успех", "Тренировка добавлена")
+
+    def delete_selected(self):
+        selected = self.tree.selection()
+        if not selected:
+            messagebox.showwarning("Предупреждение", "Выберите тренировку для удаления")
+            return
+
+        for item in selected:
+            values = self.tree.item(item, "values")
+            for i, tr in enumerate(self.trainings):
+                if tr["date"] == values[0] and tr["type"] == values[1] and tr["duration"] == float(values[2]):
+                    del self.trainings[i]
+                    break
+
+        self.save_data()
+        self.apply_filters()
+        messagebox.showinfo("Успех", "Тренировка удалена")
+
+    def apply_filters(self):
+        filter_type = self.filter_type.get()
+        filter_date = self.filter_date.get().strip()
+
+        self.filtered_trainings = self.trainings.copy()
+
+        if filter_type != "Все":
+            self.filtered_trainings = [t for t in self.filtered_trainings if t["type"] == filter_type]
+
+        if filter_date:
+            try:
+                datetime.strptime(filter_date, "%Y-%m-%d")
+                self.filtered_trainings = [t for t in self.filtered_trainings if t["date"] == filter_date]
+            except ValueError:
+                pass
+
+        self.update_table()
+
+    def reset_filters(self):
+        self.filter_type.set("Все")
+        self.filter_date.delete(0, tk.END)
+        self.apply_filters()
+
+    def update_table(self):
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+
+        for training in self.filtered_trainings:
+            self.tree.insert("", "end", values=(training["date"], training["type"], training["duration"]))
+
+    def clear_inputs(self):
+        self.date_entry.delete(0, tk.END)
+        self.date_entry.insert(0, datetime.now().strftime("%Y-%m-%d"))
+        self.type_entry.set("Бег")
+        self.duration_entry.delete(0, tk.END)
+
+    def load_data(self):
+        if os.path.exists(DATA_FILE):
+            try:
+                with open(DATA_FILE, "r", encoding="utf-8") as f:
+                    self.trainings = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError):
+                self.trainings = []
+
+    def save_data(self):
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(self.trainings, f, indent=4, ensure_ascii=False)
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = TrainingPlanner(root)
+    root.mainloop()
